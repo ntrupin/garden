@@ -76,7 +76,7 @@ def batch_iterate(batch_size, X, y):
         ids = perm[s:s+batch_size]
         yield X[ids], y[ids]
 
-def train(model):
+def train(model, filename):
     train_images, train_labels, test_images, test_labels = map(
         mx.array, getattr(mnist, "mnist")()
     )
@@ -106,14 +106,14 @@ def train(model):
         print(f"Epoch {epoch + 1}, Loss {running_loss/PARAMS['batch_size']:.4f}, Accuracy {accuracy.item():.4f}, Time {toc - tic:.3f} (s)")
         running_loss = 0.0
 
-    model.save_weights("lenet5.safetensors")
+    model.save_weights(filename)
 
 def main(args):
     model = LeNet5()
     if os.path.isfile(args.output):
         model.load_weights(args.output)
     else:
-        train(model)
+        train(model, args.output)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Train LeNet on MNIST with MLX.")
