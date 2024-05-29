@@ -1,11 +1,10 @@
-import time
+import argparse
 import os
-from functools import partial
+import time
 
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
-
 import numpy as np
 
 import mnist
@@ -109,14 +108,21 @@ def train(model):
 
     model.save_weights("lenet5.safetensors")
 
-if __name__ == "__main__":
+def main(args):
     model = LeNet5()
-    if os.path.isfile("lenet5.safetensors"):
-        model.load_weights("lenet5.safetensors")
+    if os.path.isfile(args.output):
+        model.load_weights(args.output)
     else:
         train(model)
 
-    _, _, test_images, test_labels = map(
-        mx.array, getattr(mnist, "mnist")()
-    )
-    print(model(test_images[5]).argmax().item(), test_labels[5].item())
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("Train LeNet on MNIST with MLX.")
+    parser.add_argument("-o", "--output", type=str, default="lenet5.safetensors",
+                        help="output file name")
+    parser.add_argument("--gpu", action="store_true", help="Use Metal backend.")
+    args = parser.parse_args()
+
+    if not args.gpu:
+        mx.set_default_device(mx.cpu)
+
+    main(args)
