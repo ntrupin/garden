@@ -35,7 +35,7 @@ def save_mnist(save_dir, filename):
 
 
 def mnist(
-    save_dir="./",
+    save_dir="./tmp",
     base_url="https://raw.githubusercontent.com/fgnt/mnist/master/",
     filename="mnist.pkl",
 ):
