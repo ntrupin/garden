@@ -15,6 +15,9 @@ FILES = [
 ]
 
 def download_mnist(base_url, save_dir):
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
     for name in FILES:
         print(f"Downloading {name[1]}...")
         request.urlretrieve(base_url + name[1], os.path.join(save_dir, name[1]))
@@ -23,13 +26,16 @@ def download_mnist(base_url, save_dir):
 def save_mnist(save_dir, filename):
     mnist = {}
     for name in FILES[:2]:
-        with gzip.open(name[1], "rb") as f:
+        path = os.path.join(save_dir, name[1])
+        with gzip.open(path, "rb") as f:
             mnist[name[0]] = np.frombuffer(f.read(), np.uint8, offset=16)\
                 .reshape(-1, 28 * 28)
     for name in FILES[-2:]:
-        with gzip.open(name[1], "rb") as f:
+        path = os.path.join(save_dir, name[1])
+        with gzip.open(path, "rb") as f:
             mnist[name[0]] = np.frombuffer(f.read(), np.uint8, offset=8)
-    with open(os.path.join(save_dir, filename), "wb") as f:
+    path = os.path.join(save_dir, filename)
+    with open(path, "wb") as f:
         pickle.dump(mnist, f)
     print("Save complete.")
 
