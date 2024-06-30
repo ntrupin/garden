@@ -11,6 +11,13 @@ import torch
 from torch import nn
 
 class UpsamplingConv2d(nn.Module):
+    """
+    a polyfill for torch.nn.ConvTranspose2d, which isn't supported
+    on metal backends. approximate transposed convolution using
+    nearest neightbor upsampling and convolution, similar to
+    stable diffusion's unet 
+    https://github.com/ml-explore/mlx-examples/blob/main/stable_diffusion/stable_diffusion/unet.py
+    """
     def __init__(self, in_channels, out_channels, kernel_size, /, stride, padding):
         super().__init__()
 
@@ -192,3 +199,8 @@ class CVAE(nn.Module):
 
     def decode(self, z):
         return self.decoder(z)
+
+    def generate(self, /, device):
+        z = (torch.randn(1, self.latent_dim)
+            .to(device))
+        return self.decode(z)

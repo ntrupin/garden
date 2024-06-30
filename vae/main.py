@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import numpy as np
+import os
 import time
 import torch
 from torch import nn
@@ -46,7 +47,7 @@ def pytorchify(images):
         .reshape((-1, 1, 28, 28)))
     return resize(images)
 
-def main(args):
+def train(args):
     rsz = torchvision.transforms.Resize((64, 64))
     train_images, _, test_images, _ = mnist()
     train_images, test_images = pytorchify(train_images).to(device), pytorchify(test_images)
@@ -98,7 +99,17 @@ def main(args):
 
         model.eval()
 
+        torch.save(model.state_dict(), "./cvae.pth")
+
 
 if __name__ == "__main__":
     args = ModelArgs()
-    main(args)
+    if os.path.isfile("cvae.pth"):
+        model = CVAE(args.latent_dim, args.image_size, args.num_filters)
+        model.to(device)
+        model.load_state_dict(torch.load("cvae.pth"))
+        image = model.generate(device)
+        print(image.shape)
+        torchvision.utils.save_image(image, "demo.png")
+    else:
+        train(args)
