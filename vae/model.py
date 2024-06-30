@@ -10,6 +10,24 @@ import numpy as np
 import torch
 from torch import nn
 
+class UpsamplingConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, /, stride, padding):
+        super().__init__()
+
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
+            stride=stride, padding=padding)
+
+    @staticmethod
+    def upsample(x, scale = 2):
+        B, C, H, W = x.shape
+        x = torch.broadcast_to(x[:, :, :, None, :, None], (B, C, H, scale, W, scale))
+        x = x.reshape(B, C, H * scale, W * scale)
+        return x
+
+
+    def forward(self, x):
+        return self.conv(UpsamplingConv2d.upsample(x))
+
 class Encoder(nn.Module):
     """
     convolutional encoder
@@ -107,9 +125,9 @@ class Decoder(nn.Module):
         self.num_filters = num_filters
 
         # note the opposite of the encoder
-        filters = [num_filters, num_filters * 2, num_filters * 4]
+        filters = [num_filters, num_filters // 2, num_filters // 4]
 
-        self.input_shape = [filters[0]] + [dim for dim in input_shape[1:]]
+        self.input_shape = [filters[0]] + [dim // 8 for dim in input_shape[1:]]
         flattened_dim = np.prod(self.input_shape, dtype=int)
 
         # latent dim -> flattened dim
@@ -135,13 +153,13 @@ class Decoder(nn.Module):
             """
             if i < len(filters) - 1:
                 layers.append(nn.Sequential(
-                    nn.ConvTranspose2d(filters[i], filters[i+1], 3, stride=1, padding=1),
+                    UpsamplingConv2d(filters[i], filters[i+1], 3, stride=1, padding=1),
                     nn.BatchNorm2d(filters[i+1]),
                     nn.LeakyReLU()
                 ))
             else:
                 layers.append(nn.Sequential(
-                    nn.ConvTranspose2d(filters[i], in_channels, 3, stride=1, padding=1),
+                    UpsamplingConv2d(filters[i], in_channels, 3, stride=1, padding=1),
                     nn.Sigmoid()
                 ))
         self.decoder = nn.Sequential(*layers)

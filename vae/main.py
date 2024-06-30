@@ -49,11 +49,12 @@ def pytorchify(images):
 def main(args):
     rsz = torchvision.transforms.Resize((64, 64))
     train_images, _, test_images, _ = mnist()
-    train_images, test_images = pytorchify(train_images), pytorchify(test_images)
+    train_images, test_images = pytorchify(train_images).to(device), pytorchify(test_images)
 
     # pytorch doesn't support upsampling convolutions on an mps backend.
     # run on cpu!
     model = CVAE(args.latent_dim, args.image_size, args.num_filters)
+    model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(),
         lr=args.learning_rate)
