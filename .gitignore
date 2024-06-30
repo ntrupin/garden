@@ -3,3 +3,5 @@ env/
 *.gz
 *.pkl
 *.safetensors
+.DS_Store
+tmp/
