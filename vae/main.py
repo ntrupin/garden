@@ -8,7 +8,7 @@ import torchvision
 from typing import Tuple
 
 from mnist import mnist
-from model import CVAE
+from condvae import CondVAE
 
 device = torch.device("mps")
 
@@ -21,11 +21,11 @@ class ModelArgs:
     learning_rate: float = 1e-3
     latent_dim: int = 8
 
-def batch_iterate(batch_size, data):
+def batch_iterate(batch_size, data, labels):
     perm = torch.randperm(data.shape[0])
     for i, s in enumerate(range(0, data.shape[0], batch_size)):
         ids = perm[s:s+batch_size]
-        yield i, data[ids]
+        yield i, data[ids], labels[ids]
 
 def vae_loss(x, y, mu, logvar):
     # reconstruction loss
@@ -49,12 +49,13 @@ def pytorchify(images):
 
 def train(args):
     rsz = torchvision.transforms.Resize((64, 64))
-    train_images, _, test_images, _ = mnist()
+    train_images, train_labels, test_images, _ = mnist()
     train_images, test_images = pytorchify(train_images).to(device), pytorchify(test_images)
+    train_labels = torch.tensor(train_labels, dtype=torch.long)
 
     # pytorch doesn't support upsampling convolutions on an mps backend.
     # run on cpu!
-    model = CVAE(args.latent_dim, args.image_size, args.num_filters)
+    model = CondVAE(args.image_size, args.latent_dim, 10, args.num_filters)
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(),
@@ -67,10 +68,10 @@ def train(args):
         loss_acc = 0.0
         throughput_acc = 0.0
 
-        for i, batch in batch_iterate(args.batch_size, train_images):
+        for i, batch, labels in batch_iterate(args.batch_size, train_images, train_labels):
             throughput_tic = time.perf_counter()
 
-            y, mu, logvar = model(batch)
+            y, mu, logvar = model(batch, labels)
             loss = vae_loss(batch, y, mu, logvar)
             optimizer.zero_grad()
             loss.backward()
@@ -105,11 +106,10 @@ def train(args):
 if __name__ == "__main__":
     args = ModelArgs()
     if os.path.isfile("cvae.pth"):
-        model = CVAE(args.latent_dim, args.image_size, args.num_filters)
+        model = CondVAE(args.image_size, args.latent_dim, 10, args.num_filters)
         model.to(device)
         model.load_state_dict(torch.load("cvae.pth"))
-        image = model.generate(device)
-        print(image.shape)
+        image = model.generate(torch.tensor(np.array([5]), dtype=torch.long), device)
         torchvision.utils.save_image(image, "demo.png")
     else:
         train(args)

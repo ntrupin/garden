@@ -177,12 +177,12 @@ class Decoder(nn.Module):
         x = x.view(-1, self.num_filters, self.input_shape[1], self.input_shape[2])
         return self.decoder(x)
 
-class CVAE(nn.Module):
+class ConvVAE(nn.Module):
     """
     and finally, our convolutional variational autoencoder
     """
 
-    def __init__(self, latent_dim, input_shape, num_filters):
+    def __init__(self, input_shape, latent_dim, num_filters):
         super().__init__()
 
         self.latent_dim = latent_dim
