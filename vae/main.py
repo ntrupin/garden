@@ -8,7 +8,7 @@ import torchvision
 from typing import Tuple
 
 from mnist import mnist
-from condvae import CondVAE
+from condvae import CondVAE, CondVAEEmbedder
 
 device = torch.device("mps")
 
@@ -17,7 +17,7 @@ class ModelArgs:
     batch_size: int = 128
     image_size: Tuple[int, ...] = (1, 64, 64)
     num_filters: int = 64
-    epochs: int = 50
+    epochs: int = 15
     learning_rate: float = 1e-3
     latent_dim: int = 8
 
@@ -25,7 +25,7 @@ def batch_iterate(batch_size, data, labels):
     perm = torch.randperm(data.shape[0])
     for i, s in enumerate(range(0, data.shape[0], batch_size)):
         ids = perm[s:s+batch_size]
-        yield i, data[ids], labels[ids.numpy()]
+        yield i, data[ids], labels[ids]
 
 def vae_loss(x, y, mu, logvar):
     # reconstruction loss
@@ -51,11 +51,13 @@ def train(args):
     rsz = torchvision.transforms.Resize((64, 64))
     train_images, train_labels, test_images, _ = mnist()
     train_images, test_images = pytorchify(train_images).to(device), pytorchify(test_images)
-    train_labels = np.array([f"{x}" for x in train_labels])
 
     # pytorch doesn't support upsampling convolutions on an mps backend.
+    embedder = CondVAEEmbedder() 
     model = CondVAE(args.image_size, args.latent_dim, 10, args.num_filters)
     model.to(device)
+
+    train_labels = embedder.encode([f"{x}" for x in train_labels], device)
 
     optimizer = torch.optim.AdamW(model.parameters(),
         lr=args.learning_rate)
@@ -105,6 +107,7 @@ def train(args):
 if __name__ == "__main__":
     args = ModelArgs()
     if os.path.isfile("cvae.pth"):
+        embedder = CondVAEEmbedder()
         model = CondVAE(args.image_size, args.latent_dim, 10, args.num_filters)
         model.load_state_dict(torch.load("cvae.pth"))
         model.to(device)
@@ -112,7 +115,8 @@ if __name__ == "__main__":
         while True:
             cmd = input("> ")
             if cmd == "exit": break
-            image = model.generate(np.array([cmd]), device)
+            embedding = embedder.encode([cmd], device)
+            image = model.generate(embedding, device)
             torchvision.utils.save_image(image, "demo.png")
     else:
         train(args)

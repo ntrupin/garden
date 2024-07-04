@@ -190,16 +190,14 @@ class CondVAE(nn.Module):
         self.input_shape = input_shape
         self.latent_dim = latent_dim
 
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
         self.class_embedder = nn.Linear(384, np.prod(input_shape[1:], dtype=int))
         self.input_embedder = nn.Conv2d(input_shape[0], input_shape[0], kernel_size=1)
 
         self.encoder = Encoder(input_shape, latent_dim, num_filters)
         self.decoder = Decoder(input_shape, latent_dim, num_classes, num_filters)
 
-    def forward(self, x, labels):
-        y = torch.tensor(self.embedder.encode(labels))\
-            .to("mps")
+    def forward(self, x, embeddings):
+        y = embeddings
         embed_class = self.class_embedder(y)\
             .view(-1, self.input_shape[1], self.input_shape[2])\
             .unsqueeze(1)
@@ -216,12 +214,20 @@ class CondVAE(nn.Module):
     def decode(self, z):
         return self.decoder(z)
 
-    def generate(self, label, /, device):
-        y = torch.tensor(self.embedder.encode(label))\
-            .to(device)
+    def generate(self, embedding, /, device):
+        y = embedding
         z = (torch.randn(1, self.latent_dim)
             .to(device))
-        print(z.shape, y.shape)
         z = torch.cat([z, y], dim=1)
-        print(z.shape)
         return self.decode(z)
+
+class CondVAEEmbedder:
+    def __init__(self):
+        super().__init__()
+
+        self.out_dim = 384
+        self.model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    def encode(self, inputs, /, device):
+        embeddings = self.model.encode(inputs)
+        return torch.tensor(embeddings).to(device)
