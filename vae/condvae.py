@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
+from sentence_transformers import SentenceTransformer
 
 class UpsamplingConv2d(nn.Module):
     """
@@ -139,7 +140,7 @@ class Decoder(nn.Module):
         flattened_dim = np.prod(self.input_shape, dtype=int)
 
         # latent dim -> flattened dim
-        self.linear = nn.Linear(latent_dim + num_classes, flattened_dim)
+        self.linear = nn.Linear(latent_dim + 384, flattened_dim)
 
         layers = []
         for i in range(len(filters)):
@@ -189,14 +190,16 @@ class CondVAE(nn.Module):
         self.input_shape = input_shape
         self.latent_dim = latent_dim
 
-        self.class_embedder = nn.Linear(num_classes, np.prod(input_shape[1:], dtype=int))
+        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        self.class_embedder = nn.Linear(384, np.prod(input_shape[1:], dtype=int))
         self.input_embedder = nn.Conv2d(input_shape[0], input_shape[0], kernel_size=1)
 
         self.encoder = Encoder(input_shape, latent_dim, num_filters)
         self.decoder = Decoder(input_shape, latent_dim, num_classes, num_filters)
 
     def forward(self, x, labels):
-        y = F.one_hot(labels).to(torch.float32).to("mps")
+        y = torch.tensor(self.embedder.encode(labels))\
+            .to("mps")
         embed_class = self.class_embedder(y)\
             .view(-1, self.input_shape[1], self.input_shape[2])\
             .unsqueeze(1)
@@ -214,8 +217,11 @@ class CondVAE(nn.Module):
         return self.decoder(z)
 
     def generate(self, label, /, device):
-        y = F.one_hot(label, num_classes=10).to(torch.float32).to("mps")
+        y = torch.tensor(self.embedder.encode(label))\
+            .to(device)
         z = (torch.randn(1, self.latent_dim)
             .to(device))
+        print(z.shape, y.shape)
         z = torch.cat([z, y], dim=1)
+        print(z.shape)
         return self.decode(z)

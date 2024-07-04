@@ -25,7 +25,7 @@ def batch_iterate(batch_size, data, labels):
     perm = torch.randperm(data.shape[0])
     for i, s in enumerate(range(0, data.shape[0], batch_size)):
         ids = perm[s:s+batch_size]
-        yield i, data[ids], labels[ids]
+        yield i, data[ids], labels[ids.numpy()]
 
 def vae_loss(x, y, mu, logvar):
     # reconstruction loss
@@ -51,10 +51,9 @@ def train(args):
     rsz = torchvision.transforms.Resize((64, 64))
     train_images, train_labels, test_images, _ = mnist()
     train_images, test_images = pytorchify(train_images).to(device), pytorchify(test_images)
-    train_labels = torch.tensor(train_labels, dtype=torch.long)
+    train_labels = np.array([f"{x}" for x in train_labels])
 
     # pytorch doesn't support upsampling convolutions on an mps backend.
-    # run on cpu!
     model = CondVAE(args.image_size, args.latent_dim, 10, args.num_filters)
     model.to(device)
 
@@ -107,9 +106,13 @@ if __name__ == "__main__":
     args = ModelArgs()
     if os.path.isfile("cvae.pth"):
         model = CondVAE(args.image_size, args.latent_dim, 10, args.num_filters)
-        model.to(device)
         model.load_state_dict(torch.load("cvae.pth"))
-        image = model.generate(torch.tensor(np.array([5]), dtype=torch.long), device)
-        torchvision.utils.save_image(image, "demo.png")
+        model.to(device)
+        cmd = ""
+        while True:
+            cmd = input("> ")
+            if cmd == "exit": break
+            image = model.generate(np.array([cmd]), device)
+            torchvision.utils.save_image(image, "demo.png")
     else:
         train(args)
