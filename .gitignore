@@ -6,3 +6,4 @@ env/
 *.pth
 .DS_Store
 tmp/
+rats/

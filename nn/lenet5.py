@@ -1,128 +1,89 @@
 import argparse
+from dataclasses import dataclass
 import os
 import time
 
-import mlx.core as mx
-import mlx.nn as nn
-import mlx.optimizers as optim
+import torch
+from torch import nn
+import torch.nn.functional as F
 import numpy as np
+from einops.layers.torch import Rearrange, Reduce
 
 import mnist
 
+device = torch.device("mps")
+
 class LeNet5(nn.Module):
-    """
-    CNN as defined in "Gradient-Based Learning Applied to Document Recognition"
-    (LeCun et al, 1998). Takes 32x32 single-channel images as input and outputs
-    10 probabilities.
-
-    MNIST dataset provides 28x28 images. We add 2 pixels of padding to each side
-    as LeNet expects 32x32.
-    """
-
     def __init__(self, num_classes=10):
-        super(LeNet5, self).__init__()
+        super().__init__()
 
-        self.extractor = nn.Sequential(
-            # C1: 32x32x1 -> 28x28x6 convolution
-            nn.Conv2d(in_channels=1, out_channels=6, kernel_size=5, stride=1, padding=2),
-            nn.ReLU(),
-            # S2: 28x28x6 -> 14x14x6 subsampling
+        self.net = nn.Sequential(
+            Rearrange("b (c h w) -> b c h w", c=1, h=28, w=28),
+            nn.Conv2d(1, 6, kernel_size=5, stride=1, padding=2),
+            nn.ReLU(inplace=True),
             nn.AvgPool2d(kernel_size=2, stride=2),
-
-            # C3: 14x14x6 -> 16x16x10 convolution
-            nn.Conv2d(in_channels=6, out_channels=16, kernel_size=5, stride=1),
-            nn.ReLU(),
-            # S4: 16x16x10 -> 5x5x16 subsampling
+            nn.Conv2d(6, 16, kernel_size=5, stride=1),
+            nn.ReLU(inplace=True),
             nn.AvgPool2d(kernel_size=2, stride=2),
+            Rearrange("b c h w -> b (c h w)"),
+            nn.Linear(16 * 5 * 5, 120),
+            nn.ReLU(inplace=True),
+            nn.Linear(120, 84),
+            nn.ReLU(inplace=True),
+            nn.Linear(84, num_classes)
         )
 
-        self.classifier = nn.Sequential(
-            # C5: 400 -> 120 fully-connected
-            nn.Linear(input_dims=16*5*5, output_dims=120),
-            nn.ReLU(),
+    def forward(self, x):
+        return self.net(x)
 
-            # F6: 120 -> 84 fully-connected
-            nn.Linear(input_dims=120, output_dims=84),
-            nn.ReLU(),
+@dataclass
+class ModelArgs:
+    batch_size: int = 256
+    num_epochs: int = 10
+    learning_rate: float = 0.01
 
-            # Output: 84 -> 10 fully-connected
-            nn.Linear(input_dims=84, output_dims=num_classes)
-            #nn.LogSoftmax()
-        )
-
-    def __call__(self, x):
-        # 784 -> 28x28x1
-        x = x.reshape([-1, 28, 28, 1])
-        # 28x28x1 -> 5x5x16
-        x = self.extractor(x)
-        # 5x5x16 -> 400
-        x = x.reshape([-1, 5 * 5 * 16])
-        # 400 -> 10
-        return self.classifier(x)
-
-PARAMS = {
-    "batch_size": 256,
-    "num_epochs": 10,
-    "learning_rate": 0.01
-}
-
-def batch_iterate(batch_size, X, y):
-    """
-    group data (X) and labels (y) into batches of batch_size.
-    randomly shuffle data between epochs.
-    """
-    perm = mx.array(np.random.permutation(y.size))
-    for s in range(0, y.size, batch_size):
-        ids = perm[s:s+batch_size]
+def batch_iter(args: ModelArgs, X, y):
+    perm = torch.randperm(y.size(dim=0)).to(device)
+    for s in range(0, y.size(dim=0), args.batch_size):
+        ids = perm[s:s+args.batch_size].to(torch.int32)
         yield X[ids], y[ids]
 
-def train(model, filename):
+def train(model: LeNet5, args: ModelArgs, filename: str | None = None):
     train_images, train_labels, test_images, test_labels = map(
-        mx.array, getattr(mnist, "mnist")()
+        torch.tensor, getattr(mnist, "mnist")()
     )
+    train_images = train_images.to(device)
+    train_labels = train_labels.long().to(device)
+    test_images = test_images.to(device)
+    test_labels = test_labels.long().to(device)
 
-    mx.eval(model.parameters())
+    optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate, momentum=0.9)
 
-    def loss_fn(model, X, y):
-        return nn.losses.cross_entropy(model(X), y, reduction="mean")
+    model.train()
+    for epoch in range(args.num_epochs):
 
-    def eval_fn(X, y):
-        return mx.mean(mx.argmax(model(X), axis=1) == y)
-
-    optimizer = optim.SGD(learning_rate=PARAMS["learning_rate"], momentum=0.9)
-    loss_and_grad_fn = nn.value_and_grad(model, loss_fn)
-
-    for epoch in range(PARAMS["num_epochs"]):
-        model.train()
         running_loss = 0.0
-
         tic = time.perf_counter()
-        for X, y in batch_iterate(PARAMS["batch_size"], train_images, train_labels):
-            loss, grads = loss_and_grad_fn(model, X, y)
-            optimizer.update(model, grads)
+        for X, y in batch_iter(args, train_images, train_labels):
+            loss = F.cross_entropy(model(X), y, reduction="mean")
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
             running_loss += loss.item()
-        accuracy = eval_fn(test_images, test_labels)
+
+        with torch.no_grad():
+            accuracy = torch.mean(torch.eq(torch.argmax(model(test_images), dim=1), test_labels).float())
         toc = time.perf_counter()
-        print(f"Epoch {epoch + 1}, Loss {running_loss/PARAMS['batch_size']:.4f}, Accuracy {accuracy.item():.4f}, Time {toc - tic:.3f} (s)")
-        running_loss = 0.0
+        print(f"Epoch {epoch + 1}, Loss {running_loss/args.batch_size:.4f}, Accuracy {accuracy.item():.4f}, Time {toc - tic:.3f} (s)")
+    model.eval()
 
-    model.save_weights(filename)
-
-def main(args):
-    model = LeNet5()
-    if os.path.isfile(args.output):
-        model.load_weights(args.output)
-    else:
-        train(model, args.output)
+    if filename is not None:
+        torch.save(model.state_dict(), filename)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("Train LeNet on MNIST with MLX.")
-    parser.add_argument("-o", "--output", type=str, default="lenet5.safetensors",
-                        help="output file name")
-    parser.add_argument("--gpu", action="store_true", help="Use Metal backend.")
-    args = parser.parse_args()
-
-    if not args.gpu:
-        mx.set_default_device(mx.cpu)
-
-    main(args)
+    model = LeNet5()
+    model.to(device)
+    if os.path.isfile("lenet5.pth"):
+        model.load_state_dict(torch.load("lenet5.pth"))
+    else:
+        train(model, ModelArgs(), "lenet5.pth")
